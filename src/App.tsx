@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { LocationInput } from './components/LocationInput';
 import { RouteCard } from './components/RouteCard';
+import { MapView } from './components/MapView';
 import { Route } from './types/route';
 import { generateRoutes, getLocationCoordinates } from './utils/routeGenerator';
 import { MapPin, Sparkles, TrendingUp } from 'lucide-react';
@@ -103,6 +104,9 @@ function App() {
                 Found {routes.length} routes. AI has optimized junction timings and identified the best path for you.
               </p>
             </div>
+
+            {/* Map Visualization */}
+            <MapView routes={routes} />
 
             <div className="space-y-6">
               {routes.map((route, index) => (

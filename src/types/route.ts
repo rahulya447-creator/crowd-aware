@@ -27,6 +27,18 @@ export interface Route {
   path_coordinates: Array<{ lat: number; lng: number }>;
   is_optimal: boolean;
   junctions?: Junction[];
+
+  // New fields for Traffic Signal Visualization
+  traffic_segments?: Array<{
+    color: string;
+    start_index: number;
+    end_index: number;
+  }>;
+  traffic_signals?: Array<{
+    lat: number;
+    lng: number;
+    state: 'red' | 'green' | 'yellow';
+  }>;
 }
 
 export interface UserSearch {

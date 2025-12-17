@@ -125,9 +125,17 @@ export async function fetchOSRMRoute(
  * 3. OSRM Proxy (Free Data)
  * 4. Smooth Curve (Offline Fallback)
  */
-import { fetchMapboxRoute } from './mapboxService';
 import { fetchTomTomRoute } from './tomtomService';
 
+/**
+ * Get detailed road-following geometry for a path
+ * PRIORITY:
+ * 1. Name-based Cache (Golden Path)
+ * 2. TomTom API (New Primary)
+ * 3. Mapbox API (Secondary)
+ * 4. OSRM Proxy (Free Fallback)
+ * 5. Smooth Curve (Offline Fallback)
+ */
 /**
  * Get detailed road-following geometry for a path
  * PRIORITY:
@@ -141,30 +149,41 @@ export async function getDetailedRouteGeometry(
     path: OSRMCoordinate[],
     startName?: string,
     endName?: string
-): Promise<OSRMCoordinate[]> {
+): Promise<Array<{
+    path: OSRMCoordinate[];
+    traffic_segments?: { color: string, start_index: number, end_index: number }[];
+    traffic_signals?: { lat: number, lng: number, state: 'red' | 'green' | 'yellow' }[];
+}>> {
     // If path is too short, return as-is
     if (path.length < 2) {
-        return path;
+        return [{ path }];
     }
 
     // 1. Check Name-Based Cache (Golden Path)
+    // Cache typically stores one optimal path, but we could structure it to store array
+    // For now, if cache hit, return single cached path
     if (startName && endName) {
         const cachedRoute = findCachedRouteByName(startName, endName);
         if (cachedRoute) {
-            return cachedRoute;
+            return [{ path: cachedRoute }];
         }
     }
 
-    // 2. Try TomTom API (Primary)
-    const tomtomWaypoints = await fetchTomTomRoute(path);
-    if (tomtomWaypoints && tomtomWaypoints.length > 0) {
-        return tomtomWaypoints;
+    // 2. Try TomTom API (Primary - Returns Multiple Routes)
+    const tomtomRoutes = await fetchTomTomRoute(path);
+    if (tomtomRoutes && tomtomRoutes.length > 0) {
+        // Map TomTom internal format to OSRMService format
+        return tomtomRoutes.map(r => ({
+            path: r.geometry,
+            traffic_segments: r.segments,
+            traffic_signals: r.signals
+        }));
     }
 
     // 3. Try Mapbox API (Secondary)
     const mapboxWaypoints = await fetchMapboxRoute(path);
     if (mapboxWaypoints && mapboxWaypoints.length > 0) {
-        return mapboxWaypoints;
+        return [{ path: mapboxWaypoints }];
     }
 
     // 4. Try to fetch from OSRM via Proxy
@@ -172,7 +191,7 @@ export async function getDetailedRouteGeometry(
 
     // If OSRM succeeds, use those waypoints
     if (osrmWaypoints && osrmWaypoints.length > 0) {
-        return osrmWaypoints;
+        return [{ path: osrmWaypoints }];
     }
 
     // 5. Fallback: Smooth Curve Interpolation
@@ -188,7 +207,7 @@ export async function getDetailedRouteGeometry(
     // Add the final point
     interpolated.push(path[path.length - 1]);
 
-    return interpolated;
+    return [{ path: interpolated }];
 }
 
 /**
@@ -199,6 +218,6 @@ export async function getRouteBetweenPoints(
     end: OSRMCoordinate,
     startName?: string,
     endName?: string
-): Promise<OSRMCoordinate[]> {
+): Promise<{ path: OSRMCoordinate[] }> {
     return getDetailedRouteGeometry([start, end], startName, endName);
 }

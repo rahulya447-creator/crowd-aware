@@ -144,11 +144,11 @@ export function MapView({ routes }: MapViewProps) {
                     center={[centerLat, centerLng]}
                     zoom={12}
                     scrollWheelZoom={true}
-                    style={{ height: '100%', width: '100%' }}
+                    style={{ height: '100%', width: '100%', minHeight: '500px' }}
                 >
                     <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
                     />
 
                     {/* Draw routes with enhanced styling */}
@@ -160,7 +160,7 @@ export function MapView({ routes }: MapViewProps) {
 
                         return (
                             <div key={route.id}>
-                                {/* Border/shadow polyline */}
+                                {/* Border/shadow polyline (Always White) */}
                                 <Polyline
                                     positions={positions}
                                     pathOptions={{
@@ -175,21 +175,100 @@ export function MapView({ routes }: MapViewProps) {
                                         mouseout: () => setHoveredRoute(null),
                                     }}
                                 />
-                                {/* Main route polyline */}
-                                <Polyline
-                                    positions={positions}
-                                    pathOptions={{
-                                        color: colors.main,
-                                        weight: isHovered ? 8 : (isOptimal ? 6 : 5),
-                                        opacity: isHovered ? 1 : (isOptimal ? 0.95 : 0.85),
-                                        lineCap: 'round',
-                                        lineJoin: 'round',
-                                    }}
-                                    eventHandlers={{
-                                        mouseover: () => setHoveredRoute(route.id),
-                                        mouseout: () => setHoveredRoute(null),
-                                    }}
-                                />
+
+                                {/* Main route polyline OR Traffic Segments */}
+                                {route.traffic_segments && route.traffic_segments.length > 0 ? (
+                                    // Render Multi-Colored Segments based on Traffic
+                                    route.traffic_segments.map((segment, segIdx) => {
+                                        // Slice the positions array for this segment
+                                        // Ensure we include the end index to connect segments visually
+                                        const segmentPositions = positions.slice(segment.start_index, segment.end_index + 1);
+                                        return (
+                                            <Polyline
+                                                key={`${route.id}-seg-${segIdx}`}
+                                                positions={segmentPositions}
+                                                pathOptions={{
+                                                    color: segment.color, // Green/Red/Orange form TomTom
+                                                    weight: isHovered ? 8 : (isOptimal ? 6 : 5),
+                                                    opacity: isHovered ? 1 : (isOptimal ? 0.95 : 0.85),
+                                                    lineCap: 'round',
+                                                    lineJoin: 'round',
+                                                }}
+                                                eventHandlers={{
+                                                    mouseover: () => setHoveredRoute(route.id),
+                                                    mouseout: () => setHoveredRoute(null),
+                                                }}
+                                            />
+                                        );
+                                    })
+                                ) : (
+                                    // Fallback to Single Color (Mapbox/OSRM/Cache)
+                                    <Polyline
+                                        positions={positions}
+                                        pathOptions={{
+                                            color: colors.main,
+                                            weight: isHovered ? 8 : (isOptimal ? 6 : 5),
+                                            opacity: isHovered ? 1 : (isOptimal ? 0.95 : 0.85),
+                                            lineCap: 'round',
+                                            lineJoin: 'round',
+                                        }}
+                                        eventHandlers={{
+                                            mouseover: () => setHoveredRoute(route.id),
+                                            mouseout: () => setHoveredRoute(null),
+                                        }}
+                                    />
+                                )}
+
+                                {/* Traffic Signal Icons (Derived from Density) - REMOVED per user request */}
+                                {false && route.traffic_signals?.map((signal, sigIdx) => {
+                                    // Custom Traffic Light Icon
+                                    const signalColor = signal.state === 'red' ? '#ef4444' : (signal.state === 'yellow' ? '#f59e0b' : '#22c55e');
+                                    const signalIcon = L.divIcon({
+                                        className: 'traffic-signal-icon',
+                                        html: `<div style="
+                                            background-color: #374151; /* Dark Grey Housing */
+                                            width: 14px;
+                                            height: 24px;
+                                            border-radius: 4px;
+                                            border: 2px solid white;
+                                            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+                                            display: flex;
+                                            flex-direction: column;
+                                            align-items: center;
+                                            justify-content: space-around;
+                                            padding: 1px;
+                                        ">
+                                            <div style="
+                                                width: 8px;
+                                                height: 8px;
+                                                border-radius: 50%;
+                                                background-color: ${signalColor};
+                                                box-shadow: 0 0 4px ${signalColor};
+                                            "></div>
+                                        </div>`,
+                                        iconSize: [20, 30],
+                                        iconAnchor: [10, 30], // Tip of pole at bottom
+                                    });
+
+                                    return (
+                                        <Marker
+                                            key={`${route.id}-sig-${sigIdx}`}
+                                            position={[signal.lat, signal.lng]}
+                                            icon={signalIcon}
+                                        >
+                                            <Popup>
+                                                <div className="p-2 text-center">
+                                                    <strong style={{ color: signalColor }}>
+                                                        {signal.state.toUpperCase()} LIGHT
+                                                    </strong>
+                                                    <div className="text-xs text-gray-600 mt-1">
+                                                        Flow based signal simulation
+                                                    </div>
+                                                </div>
+                                            </Popup>
+                                        </Marker>
+                                    );
+                                })}
                             </div>
                         );
                     })}

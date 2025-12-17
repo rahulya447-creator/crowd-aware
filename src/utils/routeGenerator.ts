@@ -59,12 +59,33 @@ export function getLocationCoordinates(locationName: string): Location {
 
 /**
  * Convert path (array of location IDs) to coordinate array
+ * Uses OSRM to get detailed road-following geometry
  */
-function pathToCoordinates(path: string[]): Array<{ lat: number; lng: number }> {
-  return path.map(id => {
+async function pathToCoordinates(path: string[], startName?: string, endName?: string): Promise<Array<{ lat: number; lng: number }>> {
+  // First, get basic waypoints from our location data
+  const waypoints = path.map(id => {
     const loc = locations[id];
     return { lat: loc.lat, lng: loc.lng };
   });
+
+  // Import OSRM service dynamically to avoid circular dependencies
+  try {
+    const { getDetailedRouteGeometry } = await import('./osrmService');
+
+    // Fetch detailed road geometry from OSRM
+    // Pass names for Golden Path caching
+    const detailedGeometry = await getDetailedRouteGeometry(waypoints, startName, endName);
+
+    // If OSRM returned valid geometry, use it
+    if (detailedGeometry && detailedGeometry.length > 0) {
+      return detailedGeometry;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch OSRM geometry, using straight-line path:', error);
+  }
+
+  // Fallback to simple waypoints if OSRM fails
+  return waypoints;
 }
 
 /**
@@ -129,29 +150,35 @@ export async function generateRoutes(start: Location, end: Location): Promise<Ro
   const routes: Route[] = [];
   const routeNames = ['Optimal Route', 'Alternative Route', 'Secondary Route'];
 
-  // Try to save to database, but continue if it fails (demo mode)
-  let searchId = crypto.randomUUID();
-  try {
-    const { data: searchData, error: searchError } = await supabase
-      .from('user_searches')
-      .insert({
-        start_location: start.name,
-        end_location: end.name,
-        start_lat: start.lat,
-        start_lng: start.lng,
-        end_lat: end.lat,
-        end_lng: end.lng,
-      })
-      .select()
-      .single();
+  // Check if we are in demo mode (placeholder credentials)
+  const isDemoMode = import.meta.env.VITE_SUPABASE_URL?.includes('placeholder');
 
-    if (!searchError && searchData) {
-      searchId = searchData.id;
-    } else {
-      console.warn('Database unavailable - running in demo mode');
+  let searchId = crypto.randomUUID();
+
+  // Only try to save to database if NOT in demo mode
+  if (!isDemoMode) {
+    try {
+      const { data: searchData, error: searchError } = await supabase
+        .from('user_searches')
+        .insert({
+          start_location: start.name,
+          end_location: end.name,
+          start_lat: start.lat,
+          start_lng: start.lng,
+          end_lat: end.lat,
+          end_lng: end.lng,
+        })
+        .select()
+        .single();
+
+      if (!searchError && searchData) {
+        searchId = searchData.id;
+      }
+    } catch (dbError) {
+      console.warn('Database unavailable - running in demo mode', dbError);
     }
-  } catch (dbError) {
-    console.warn('Database unavailable - running in demo mode', dbError);
+  } else {
+    console.log('Running in DEMO MODE - skipping database writes');
   }
 
   for (let i = 0; i < Math.min(paths.length, 3); i++) {
@@ -162,7 +189,15 @@ export async function generateRoutes(start: Location, end: Location): Promise<Ro
     const distance = calculatePathDistance(path);
     const crowdLevel = getDominantCrowdLevel(segments);
     const estimatedTime = calculateTravelTime(distance, segments);
-    const pathCoordinates = pathToCoordinates(path);
+
+    // Get detailed road-following geometry from OSRM
+    // Pass start and end names for the first route to trigger Golden Path cache
+    const isFirstRoute = i === 0;
+    const pathCoordinates = await pathToCoordinates(
+      path,
+      isFirstRoute ? start.name : undefined,
+      isFirstRoute ? end.name : undefined
+    );
 
     const routeId = crypto.randomUUID();
 
@@ -184,34 +219,36 @@ export async function generateRoutes(start: Location, end: Location): Promise<Ro
     routeData.junctions = junctions;
 
     // Try to save to database (optional)
-    try {
-      await supabase.from('routes').insert({
-        id: routeId,
-        search_id: searchId,
-        route_name: routeData.route_name,
-        total_distance: routeData.total_distance,
-        estimated_time: routeData.estimated_time,
-        crowd_level: routeData.crowd_level,
-        path_coordinates: routeData.path_coordinates,
-        is_optimal: false,
-      });
+    if (!isDemoMode) {
+      try {
+        await supabase.from('routes').insert({
+          id: routeId,
+          search_id: searchId,
+          route_name: routeData.route_name,
+          total_distance: routeData.total_distance,
+          estimated_time: routeData.estimated_time,
+          crowd_level: routeData.crowd_level,
+          path_coordinates: routeData.path_coordinates,
+          is_optimal: false,
+        });
 
-      if (junctions.length > 0) {
-        await supabase.from('junctions').insert(junctions.map(j => ({
-          route_id: j.route_id,
-          junction_name: j.junction_name,
-          latitude: j.latitude,
-          longitude: j.longitude,
-          vehicles_waiting: j.vehicles_waiting,
-          time_without_ai: j.time_without_ai,
-          time_with_ai: j.time_with_ai,
-          crowd_density: j.crowd_density,
-          ai_optimization_active: j.ai_optimization_active,
-        })));
+        if (junctions.length > 0) {
+          await supabase.from('junctions').insert(junctions.map(j => ({
+            route_id: j.route_id,
+            junction_name: j.junction_name,
+            latitude: j.latitude,
+            longitude: j.longitude,
+            vehicles_waiting: j.vehicles_waiting,
+            time_without_ai: j.time_without_ai,
+            time_with_ai: j.time_with_ai,
+            crowd_density: j.crowd_density,
+            ai_optimization_active: j.ai_optimization_active,
+          })));
+        }
+      } catch (dbError) {
+        // Silently continue if database save fails
+        console.warn('Could not save route to database', dbError);
       }
-    } catch (dbError) {
-      // Silently continue if database save fails
-      console.warn('Could not save route to database', dbError);
     }
 
     routes.push(routeData);
@@ -227,10 +264,12 @@ export async function generateRoutes(start: Location, end: Location): Promise<Ro
   optimalRoute.is_optimal = true;
 
   // Try to mark as optimal in database (optional)
-  try {
-    await supabase.from('routes').update({ is_optimal: true }).eq('id', optimalRoute.id);
-  } catch (dbError) {
-    // Silently continue if database update fails
+  if (!isDemoMode) {
+    try {
+      await supabase.from('routes').update({ is_optimal: true }).eq('id', optimalRoute.id);
+    } catch (dbError) {
+      // Silently continue if database update fails
+    }
   }
 
   return routes;

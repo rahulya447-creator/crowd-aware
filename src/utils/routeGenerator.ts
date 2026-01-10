@@ -1,21 +1,43 @@
 import { Route, Junction, Location } from '../types/route';
 import { supabase } from '../lib/supabase';
-import { locations, findLocationByName } from './roadNetwork';
-import { findMultipleRoutes, calculatePathDistance, getPathSegments } from './astar';
-import {
-  getDominantCrowdLevel,
-  calculateTravelTime,
-  calculateJunctionWaitTime,
-  calculateAIOptimizedTime,
-  calculateVehiclesWaiting,
-  calculateCrowdLevel
-} from './trafficSimulator';
+import { findLocationByName } from './roadNetwork';
+// Removed unused 'astar' import
+// Removed unused 'trafficSimulator' imports
+
+/**
+ * Calculate crowd level based on segment colors
+ */
+function calculateCrowdFromSegments(segments: Array<{ color: string }> | undefined): 'low' | 'medium' | 'high' {
+  if (!segments || segments.length === 0) return 'low';
+
+  let redCount = 0;
+  let orangeCount = 0;
+  let total = segments.length;
+
+  segments.forEach(seg => {
+    if (seg.color === '#ef4444') redCount++; // Red
+    else if (seg.color === '#f59e0b') orangeCount++; // Orange/Yellow
+  });
+
+  const redRatio = redCount / total;
+  const orangeRatio = orangeCount / total;
+
+  if (redRatio > 0.3) return 'high';
+  if (redRatio > 0.1 || orangeRatio > 0.4) return 'medium';
+  return 'low';
+}
 
 /**
  * Get location coordinates from user input
  * Uses road network locations first, falls back to predefined list
  */
-export function getLocationCoordinates(locationName: string): Location {
+import { searchLocation } from './tomtomSearchService';
+
+/**
+ * Get location coordinates from user input
+ * Uses road network locations first, then TomTom Search API, falls back to random if needed
+ */
+export async function getLocationCoordinates(locationName: string): Promise<Location> {
   // Try to find in road network first
   const networkLocation = findLocationByName(locationName);
   if (networkLocation) {
@@ -49,11 +71,27 @@ export function getLocationCoordinates(locationName: string): Location {
     return { name: normalized, ...CITY_LOCATIONS[normalized] };
   }
 
-  // Random fallback
+  // Try TomTom Geocoding
+  try {
+    const searchResult = await searchLocation(locationName);
+    if (searchResult) {
+      return {
+        name: searchResult.address,
+        lat: searchResult.lat,
+        lng: searchResult.lng
+      };
+    }
+  } catch (err) {
+    console.warn('Geocoding failed, falling back to approximation');
+  }
+
+  console.warn(`Location not found: "${locationName}". Using nearby approximation.`);
+
+  // Random fallback (Central Delhi approx)
   return {
     name: locationName,
-    lat: 28.6139 + (Math.random() - 0.5) * 0.1,
-    lng: 77.2090 + (Math.random() - 0.5) * 0.1,
+    lat: 28.6139 + (Math.random() - 0.5) * 0.01,
+    lng: 77.2090 + (Math.random() - 0.5) * 0.01,
   };
 }
 
@@ -61,45 +99,14 @@ export function getLocationCoordinates(locationName: string): Location {
  * Convert path (array of location IDs) to coordinate array
  * Uses OSRM/TomTom to get detailed road-following geometry
  */
-async function pathToCoordinates(path: string[], startName?: string, endName?: string): Promise<Array<{
-  path: Array<{ lat: number; lng: number }>;
-  traffic_segments?: Array<{ color: string; start_index: number; end_index: number }>;
-  traffic_signals?: Array<{ lat: number; lng: number; state: 'red' | 'green' | 'yellow' }>;
-}>> {
-  // First, get basic waypoints from our location data
-  const waypoints = path.map(id => {
-    const loc = locations[id];
-    return { lat: loc.lat, lng: loc.lng };
-  });
 
-  // Import OSRM service dynamically to avoid circular dependencies
-  try {
-    const { getDetailedRouteGeometry } = await import('./osrmService');
-
-    // Fetch detailed road geometry from OSRM/TomTom
-    console.log('🛣️ Fetching route geometry...');
-    const detailedRoutes = await getDetailedRouteGeometry(waypoints, startName, endName);
-    console.log('📦 Routes Received:', detailedRoutes ? detailedRoutes.length : 0);
-
-    // If service returned valid geometry, use it
-    if (detailedRoutes && detailedRoutes.length > 0) {
-      return detailedRoutes;
-    }
-  } catch (error) {
-    console.warn('Failed to fetch OSRM geometry, using straight-line path:', error);
-  }
-
-  // Fallback to simple waypoints if service fails
-  return [{ path: waypoints }];
-}
 
 /**
  * Generate junctions from path with realistic traffic data
  */
 function generateJunctions(
   routeId: string,
-  pathCoords: Array<{ lat: number, lng: number }>,
-  segments: Array<any>
+  pathCoords: Array<{ lat: number, lng: number }>
 ): Junction[] {
   const junctions: Junction[] = [];
   // Simplified junction generation based on geometry length
@@ -175,17 +182,16 @@ export async function generateRoutes(start: Location, end: Location): Promise<Ro
   // We'll create a dummy "path" of 2 points to trigger the service
   // In future refactor, direct coords pass would be cleaner
 
-  const detailedRoutes = await pathToCoordinates(
-    // We treat 'start' and 'end' as if they were IDs in the mock graph 
-    // But actually pathToCoordinates maps ID->Loc. 
-    // Since we can't assume Start/End are in our local hardcoded 'locations' map,
-    // we need to update pathToCoordinates to handle arbitrary coords or mock it here.
+  // We treat 'start' and 'end' as if they were IDs in the mock graph 
+  // But actually pathToCoordinates maps ID->Loc. 
+  // Since we can't assume Start/End are in our local hardcoded 'locations' map,
+  // we need to update pathToCoordinates to handle arbitrary coords or mock it here.
 
-    // Hack: We will bypass the ID mapping in pathToCoordinates by passing dummy IDs
-    // and modifying logic? No, pathToCoordinates uses `locations[id]`.
-    // Better: We should call `getDetailedRouteGeometry` directly here since we have coords.
-    []
-  );
+  // Hack: We will bypass the ID mapping in pathToCoordinates by passing dummy IDs
+  // and modifying logic? No, pathToCoordinates uses `locations[id]`.
+  // Better: We should call `getDetailedRouteGeometry` directly here since we have coords.
+  // Call skipped as we use direct OSRM service below
+
 
   // Re-import service directly here to bypass ID looking
   // We can't rely on `findMultipleRoutes` (A*) because it requires graph nodes
@@ -209,28 +215,38 @@ export async function generateRoutes(start: Location, end: Location): Promise<Ro
     const geometry = routeGeometries[i];
     const segments = geometry.traffic_segments || [];
 
-    // Calculate distance approx from geometry
+    // Use real summary if available, otherwise fallback to approximate calculation
     let distance = 0;
-    for (let k = 0; k < geometry.path.length - 1; k++) {
-      const p1 = geometry.path[k];
-      const p2 = geometry.path[k + 1];
-      // simple Haversine approx or Euclidean for speed
-      const deg2rad = (deg: number) => deg * (Math.PI / 180);
-      const R = 6371; // Radius of the earth in km
-      const dLat = deg2rad(p2.lat - p1.lat);
-      const dLon = deg2rad(p2.lng - p1.lng);
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(deg2rad(p1.lat)) * Math.cos(deg2rad(p2.lat)) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const d = R * c; // Distance in km
-      distance += d;
+    let estimatedTime = 0;
+
+    if (geometry.summary) {
+      // Convert meters to km
+      distance = geometry.summary.distance / 1000;
+      // Convert seconds to minutes
+      estimatedTime = geometry.summary.travelTime / 60;
+    } else {
+      // Calculate distance approx from geometry
+      for (let k = 0; k < geometry.path.length - 1; k++) {
+        const p1 = geometry.path[k];
+        const p2 = geometry.path[k + 1];
+        // simple Haversine approx or Euclidean for speed
+        const deg2rad = (deg: number) => deg * (Math.PI / 180);
+        const R = 6371; // Radius of the earth in km
+        const dLat = deg2rad(p2.lat - p1.lat);
+        const dLon = deg2rad(p2.lng - p1.lng);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(deg2rad(p1.lat)) * Math.cos(deg2rad(p2.lat)) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const d = R * c; // Distance in km
+        distance += d;
+      }
+      // Approx time: 30km/h avg speed in city
+      estimatedTime = (distance / 30) * 60;
     }
 
-    const crowdLevel = getDominantCrowdLevel(segments);
-    // Approx time: 30km/h avg speed in city
-    const estimatedTime = (distance / 30) * 60;
+    const crowdLevel = calculateCrowdFromSegments(segments);
 
     const routeId = crypto.randomUUID();
 
@@ -250,7 +266,7 @@ export async function generateRoutes(start: Location, end: Location): Promise<Ro
     };
 
     // Generate simplified junctions
-    const junctions = generateJunctions(routeId, geometry.path, segments);
+    const junctions = generateJunctions(routeId, geometry.path);
     routeData.junctions = junctions;
 
     // Try to save to database (optional)

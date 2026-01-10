@@ -19,6 +19,7 @@ export async function fetchTomTomRoute(
     geometry: TomTomCoordinate[];
     segments: { color: string, start_index: number, end_index: number }[];
     signals: { lat: number, lng: number, state: 'red' | 'green' | 'yellow' }[];
+    summary: { distance: number, travelTime: number };
 }> | null> {
     try {
         const apiKey = import.meta.env.VITE_TOMTOM_API_KEY;
@@ -130,7 +131,11 @@ export async function fetchTomTomRoute(
             return {
                 geometry: points,
                 segments: segments,
-                signals: signals
+                signals: signals,
+                summary: {
+                    distance: route.summary.lengthInMeters,
+                    travelTime: route.summary.travelTimeInSeconds
+                }
             };
         });
 

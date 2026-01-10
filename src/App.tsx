@@ -18,8 +18,8 @@ function App() {
     setSearchPerformed(true);
 
     try {
-      const start = getLocationCoordinates(startLocation);
-      const end = getLocationCoordinates(endLocation);
+      const start = await getLocationCoordinates(startLocation);
+      const end = await getLocationCoordinates(endLocation);
 
       const generatedRoutes = await generateRoutes(start, end);
 

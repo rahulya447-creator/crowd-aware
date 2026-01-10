@@ -153,6 +153,7 @@ export async function getDetailedRouteGeometry(
     path: OSRMCoordinate[];
     traffic_segments?: { color: string, start_index: number, end_index: number }[];
     traffic_signals?: { lat: number, lng: number, state: 'red' | 'green' | 'yellow' }[];
+    summary?: { distance: number, travelTime: number };
 }>> {
     // If path is too short, return as-is
     if (path.length < 2) {
@@ -162,12 +163,13 @@ export async function getDetailedRouteGeometry(
     // 1. Check Name-Based Cache (Golden Path)
     // Cache typically stores one optimal path, but we could structure it to store array
     // For now, if cache hit, return single cached path
-    if (startName && endName) {
-        const cachedRoute = findCachedRouteByName(startName, endName);
-        if (cachedRoute) {
-            return [{ path: cachedRoute }];
-        }
-    }
+    // 1. Check Name-Based Cache (Golden Path) - DISABLED per user request
+    // if (startName && endName) {
+    //     const cachedRoute = findCachedRouteByName(startName, endName);
+    //     if (cachedRoute) {
+    //         return [{ path: cachedRoute }];
+    //     }
+    // }
 
     // 2. Try TomTom API (Primary - Returns Multiple Routes)
     const tomtomRoutes = await fetchTomTomRoute(path);
@@ -176,7 +178,8 @@ export async function getDetailedRouteGeometry(
         return tomtomRoutes.map(r => ({
             path: r.geometry,
             traffic_segments: r.segments,
-            traffic_signals: r.signals
+            traffic_signals: r.signals,
+            summary: r.summary
         }));
     }
 
@@ -219,5 +222,6 @@ export async function getRouteBetweenPoints(
     startName?: string,
     endName?: string
 ): Promise<{ path: OSRMCoordinate[] }> {
-    return getDetailedRouteGeometry([start, end], startName, endName);
+    const routes = await getDetailedRouteGeometry([start, end], startName, endName);
+    return routes[0];
 }

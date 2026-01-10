@@ -16,57 +16,6 @@ L.Icon.Default.mergeOptions({
     shadowUrl: markerShadow,
 });
 
-// Custom start marker (green with A)
-const startIcon = L.divIcon({
-    className: 'custom-marker',
-    html: `<div style="
-        background-color: #10b981;
-        width: 32px;
-        height: 32px;
-        border-radius: 50% 50% 50% 0;
-        transform: rotate(-45deg);
-        border: 3px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    ">
-        <span style="
-            transform: rotate(45deg);
-            color: white;
-            font-weight: bold;
-            font-size: 16px;
-        ">A</span>
-    </div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 32],
-});
-
-// Custom end marker (red with B)
-const endIcon = L.divIcon({
-    className: 'custom-marker',
-    html: `<div style="
-        background-color: #ef4444;
-        width: 32px;
-        height: 32px;
-        border-radius: 50% 50% 50% 0;
-        transform: rotate(-45deg);
-        border: 3px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    ">
-        <span style="
-            transform: rotate(45deg);
-            color: white;
-            font-weight: bold;
-            font-size: 16px;
-        ">B</span>
-    </div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 32],
-});
 
 interface MapViewProps {
     routes: Route[];
@@ -90,9 +39,7 @@ export function MapView({ routes }: MapViewProps) {
         { main: '#F59E0B', border: '#D97706' }, // Amber (alternative 2)
     ];
 
-    // Get start and end positions
-    const startPosition = routes[0]?.path_coordinates[0];
-    const endPosition = routes[0]?.path_coordinates[routes[0].path_coordinates.length - 1];
+
 
     return (
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-8">
@@ -273,51 +220,68 @@ export function MapView({ routes }: MapViewProps) {
                         );
                     })}
 
-                    {/* Start marker */}
-                    {startPosition && (
-                        <Marker position={[startPosition.lat, startPosition.lng]} icon={startIcon}>
-                            <Popup>
-                                <div style={{ padding: '8px' }}>
-                                    <strong style={{ color: '#10b981' }}>Start Location</strong>
-                                    <p style={{ fontSize: '12px', margin: '4px 0' }}>{routes[0]?.route_name.split(' to ')[0]}</p>
-                                </div>
-                            </Popup>
+
+
+
+
+
+                    {/* Start Marker (Custom Green A) */}
+                    {routes.length > 0 && routes[0].path_coordinates.length > 0 && (
+                        <Marker
+                            position={[routes[0].path_coordinates[0].lat, routes[0].path_coordinates[0].lng]}
+                            icon={L.divIcon({
+                                className: 'custom-marker-a',
+                                html: `<div style="
+                                    background-color: #10b981; 
+                                    color: white; 
+                                    width: 30px; 
+                                    height: 30px; 
+                                    border-radius: 50%; 
+                                    display: flex; 
+                                    align-items: center; 
+                                    justify-content: center; 
+                                    font-weight: bold; 
+                                    font-size: 16px;
+                                    border: 2px solid white;
+                                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                                ">A</div>`,
+                                iconSize: [30, 30],
+                                iconAnchor: [15, 15]
+                            })}
+                        >
+                            <Popup>Start: <strong>Connaught Place</strong></Popup>
                         </Marker>
                     )}
 
-                    {/* End marker */}
-                    {endPosition && (
-                        <Marker position={[endPosition.lat, endPosition.lng]} icon={endIcon}>
-                            <Popup>
-                                <div style={{ padding: '8px' }}>
-                                    <strong style={{ color: '#ef4444' }}>End Location</strong>
-                                    <p style={{ fontSize: '12px', margin: '4px 0' }}>{routes[0]?.route_name.split(' to ')[1]}</p>
-                                </div>
-                            </Popup>
+                    {/* End Marker (Custom Red B) */}
+                    {routes.length > 0 && routes[0].path_coordinates.length > 0 && (
+                        <Marker
+                            position={[routes[0].path_coordinates[routes[0].path_coordinates.length - 1].lat, routes[0].path_coordinates[routes[0].path_coordinates.length - 1].lng]}
+                            icon={L.divIcon({
+                                className: 'custom-marker-b',
+                                html: `<div style="
+                                    background-color: #ef4444; 
+                                    color: white; 
+                                    width: 30px; 
+                                    height: 30px; 
+                                    border-radius: 50%; 
+                                    display: flex; 
+                                    align-items: center; 
+                                    justify-content: center; 
+                                    font-weight: bold; 
+                                    font-size: 16px;
+                                    border: 2px solid white;
+                                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                                ">B</div>`,
+                                iconSize: [30, 30],
+                                iconAnchor: [15, 15]
+                            })}
+                        >
+                            <Popup>End: <strong>India Gate</strong></Popup>
                         </Marker>
                     )}
 
-                    {/* Junction markers */}
-                    {routes.flatMap((route) =>
-                        route.junctions?.map((junction) => (
-                            <Marker key={junction.id} position={[junction.latitude, junction.longitude]}>
-                                <Popup>
-                                    <div style={{ padding: '8px' }}>
-                                        <strong>{junction.junction_name}</strong>
-                                        <p style={{ fontSize: '12px', color: '#666', margin: '4px 0' }}>{route.route_name}</p>
-                                        <div style={{ fontSize: '11px' }}>
-                                            <p><strong>Crowd:</strong> {junction.crowd_density}</p>
-                                            <p><strong>Vehicles:</strong> {junction.vehicles_waiting}</p>
-                                            <p><strong>Wait (No AI):</strong> {Math.floor(junction.time_without_ai / 60)}:{(junction.time_without_ai % 60).toString().padStart(2, '0')}</p>
-                                            <p style={{ color: '#10b981', fontWeight: 'bold' }}>
-                                                <strong>Wait (AI):</strong> {Math.floor(junction.time_with_ai / 60)}:{(junction.time_with_ai % 60).toString().padStart(2, '0')}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </Popup>
-                            </Marker>
-                        )) || []
-                    )}
+
                 </MapContainer>
             </div>
 
